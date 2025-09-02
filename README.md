@@ -1,477 +1,291 @@
-java-youtube-downloader (Enhanced)
+Java YouTube 下载器 (增强版)
 ============
 
 [![](https://jitpack.io/v/sealedtx/java-youtube-downloader.svg)](https://jitpack.io/#sealedtx/java-youtube-downloader)
 
-Simple java parser for retrieving youtube video metadata.
+简单的 Java YouTube 视频元数据解析器。
 
-**Enhanced version** with improved proxy support, better error handling, and OkHttp integration.
+**增强版本**，具有改进的代理支持、更好的错误处理和 OkHttp 集成。
 
-## What's New in This Fork
+## 本分支的新功能
 
-This enhanced version includes several improvements over the [original project](https://github.com/sealedtx/java-youtube-downloader):
+此增强版本在[原项目](https://github.com/sealedtx/java-youtube-downloader)基础上包含了多项改进：
 
-### Key Enhancements
-- 🚀 **Enhanced Proxy Support**: Full HTTP proxy authentication with username/password
-- 🔧 **OkHttp Integration**: Replaced HttpURLConnection with OkHttp for better proxy handling
-- 📊 **Improved Progress Display**: Single-line refresh progress every second
-- 🎯 **Direct visitorData Acquisition**: Optimized API request flow
-- 🛠️ **Better Error Messages**: Clean error output showing key information only
-- 📦 **Removed Nutz Dependency**: Replaced with JDK native + FastJSON implementation
+### 主要增强功能
+- 🚀 **增强代理支持**: 完整的 HTTP 代理认证（用户名/密码）
+- 🔧 **OkHttp 集成**: 替换 HttpURLConnection，更好地处理代理认证
+- 📊 **改进进度显示**: 单行刷新进度，每秒更新
+- 🎯 **直接获取 visitorData**: 优化 API 请求流程
+- 🛠️ **更好的错误信息**: 仅显示关键错误信息，不输出完整堆栈
+- 📦 **移除 Nutz 依赖**: 替换为 JDK 原生 + FastJSON 实现
 
-### Quick Test Usage
+### 快速测试使用
 
-A test class is included for quick proxy testing:
+包含了用于快速代理测试的测试类：
 
 ```bash
-# With proxy authentication
+# 带认证代理测试
 java -cp "target/classes:$(find ~/.m2/repository -name '*.jar' | tr '\n' ':')" \
   com.github.kiulian.downloader.test.YoutubeVideoParser \
-  proxy.example.com 8080 username password
+  代理主机 端口 用户名 密码
 
-# Without proxy authentication  
+# 无认证代理测试  
 java -cp "target/classes:$(find ~/.m2/repository -name '*.jar' | tr '\n' ':')" \
   com.github.kiulian.downloader.test.YoutubeVideoParser \
-  proxy.example.com 8080
+  代理主机 端口
 ```
 
-### Enhanced Proxy Configuration
+**示例:**
+```bash
+# 带认证
+java YoutubeVideoParser us.decodo.com 10001 spw31iyoeh password123
+
+# 无认证
+java YoutubeVideoParser 127.0.0.1 10808
+```
+
+### 增强的代理配置
 
 ```java
-// Proxy with authentication
+// 带认证的代理
 Config config = new Config.Builder()
     .proxy("proxy.example.com", 8080, "username", "password")
     .maxRetries(1)
     .build();
 
-// Proxy without authentication
+// 无认证的代理
 Config config = new Config.Builder()
     .proxy("proxy.example.com", 8080)
     .maxRetries(1)
     .build();
 ```
 
----
+## 编译和运行
 
-## Original Documentation
+```bash
+# 编译项目
+mvn compile
 
-Library is **not stable**, because Youtube often changes web structure of its pages. I don't use this library regularly to find the errors. Thats why errors are fixed as soon as someone finds it and opens an issue. Feel free to report an error or sumbit a PR.
-
-**WARNING**: Youtube API does not support a video download. In fact, it is prohibited - [Terms of Service - II. Prohibitions](https://developers.google.com/youtube/terms/api-services-terms-of-service).
-<br>**WARNING**: Downloading videos may violate copyrights!
-<br><br>This project is only for educational purposes. I urge not to use this project to violate any laws.
-
-Usage
--------
-
-### Configuration
-```java
-// init downloader with default config
-YoutubeDownloader downloader = new YoutubeDownloader();
-// or with custom config
-Config config = new Config.Builder()
-    .executorService(executorService) // for async requests, default Executors.newCachedThreadPool()
-    .maxRetries(1) // retry on failure, default 0
-    .header("Accept-language", "en-US,en;") // extra request header
-    .proxy("192.168.0.1", 2005)
-    .proxyCredentialsManager(proxyCredentials) // default ProxyCredentialsImpl
-    .proxy("192.168.0.1", 2005, "login", "pass")
-    .build();
-YoutubeDownloader downloader = new YoutubeDownloader(config);
-
-// or configure after init
-Config config = downloader.getConfig();
-config.setMaxRetries(0);
+# 运行测试（带代理认证）
+java -cp "target/classes:$(maven dependency classpath)" \
+  com.github.kiulian.downloader.test.YoutubeVideoParser \
+  你的代理主机 端口 用户名 密码
 ```
 
-### Request
+---
+
+## 使用说明
+
+### 配置
 ```java
-// each request accepts optional params that will override global configuration
+// 使用默认配置初始化下载器
+YoutubeDownloader downloader = new YoutubeDownloader();
+
+// 或使用自定义配置
+Config config = new Config.Builder()
+    .executorService(executorService) // 用于异步请求，默认 Executors.newCachedThreadPool()
+    .maxRetries(1) // 失败重试次数，默认 0
+    .header("Accept-language", "zh-CN,zh;") // 额外的请求头
+    .proxy("192.168.0.1", 2005) // 无认证代理
+    .proxy("192.168.0.1", 2005, "用户名", "密码") // 带认证代理
+    .build();
+YoutubeDownloader downloader = new YoutubeDownloader(config);
+```
+
+### 请求
+```java
+// 每个请求都接受可选参数，会覆盖全局配置
 Request request = new Request(...)
         .maxRetries(...) 
         .proxy(...) 
         .header(...)
-        .callback(...) // add callback for async processing
-        .async(); // make request async
-```
-**NOTE:**
-
-At present because youtube is seemingly making some changes to it's APIS, requests made to certain clients might fail.
-That's why, in case a request fails, with this one can choose to opt for a different client if the current one is broken. This can either be a registered client in Clients , or a custom made one if it has not been added yet to the registered ones. Any methods that use innertube have been updated to use clients specified in the corresponding request. At present, those include requests for video info, search continuation, and one for playlists. 
-
-Using one of the registered clients is as simple as:
-```java
-// each request accepts optional params that will override global configuration
-Request request = new Request(...)
-        .clientType(ClientType.MWEB); // <---- put here any existing client or implement your own if it is not present
+        .callback(...) // 添加回调用于异步处理
+        .async(); // 设为异步请求
 ```
 
+### 视频信息
 ```java
-// or overwrite default highest priority client and it will be used by default in all requests
-Clients.setHighestPriorityClientType(ClientType.MWEB);
-```
+String videoId = "abc12345"; // 对应 URL https://www.youtube.com/watch?v=abc12345
 
-Currently highest priority client is set to `ANDROID_VR`. It was chooses by manual test done by @iexavl
-
-More information here: https://github.com/sealedtx/java-youtube-downloader/pull/132
-
-### Response
-```java
-Response<T> response = downloader.get...(request)
-
-// get response status one of [downloading, completed, canceled, error]
-ResponseStatus status = response.status();
-
-// get reponse data 
-// NOTE: will block current thread until completion if request is async        
-T data = response.data(); 
-// or get with timeout, may throw TimeoutException
-T data = response.data(1, TimeUnit.SECONDS);
-
-// cancel if request is async
-boolean canceled = response.cancel();        
-
-// get response error if request finished exceptionally
-// NOTE: will block current thread until completion if request is async        
-Throwable error = response.error();
-
-// check if request finished successfully
-// NOTE: will block current thread until completion if request is async        
-boolean ok = response.ok();
-```
-
-### VideoInfo
-```java
-String videoId = "abc12345"; // for url https://www.youtube.com/watch?v=abc12345
-
-// sync parsing
+// 同步解析
 RequestVideoInfo request = new RequestVideoInfo(videoId);
 Response<VideoInfo> response = downloader.getVideoInfo(request);
 VideoInfo video = response.data();
 
-// async parsing
+// 异步解析
 RequestVideoInfo request = new RequestVideoInfo(videoId)
         .callback(new YoutubeCallback<VideoInfo>() {
             @Override
             public void onFinished(VideoInfo videoInfo) {
-                System.out.println("Finished parsing");
+                System.out.println("解析完成");
             }
     
             @Override
             public void onError(Throwable throwable) {
-                System.out.println("Error: " + throwable.getMessage());
+                System.out.println("错误: " + throwable.getMessage());
             }
         })
         .async();
-Response<VideoInfo> response = downloader.getVideoInfo(request);
-VideoInfo video = response.data(); // will block thread
 
-// video details
+// 视频详情
 VideoDetails details = video.details();
-System.out.println(details.title());
-System.out.println(details.viewCount());
-details.thumbnails().forEach(image -> System.out.println("Thumbnail: " + image));
+System.out.println("标题: " + details.title());
+System.out.println("观看次数: " + details.viewCount());
+details.thumbnails().forEach(image -> System.out.println("缩略图: " + image));
 
-// HLS url only for live videos and streams
-if (video.details().isLive()) {
-    System.out.println("Live Stream HLS URL: " + video.details().liveUrl());
-}
-        
-// get videos formats only with audio
+// 获取包含音频的视频格式
 List<VideoWithAudioFormat> videoWithAudioFormats = video.videoWithAudioFormats();
 videoWithAudioFormats.forEach(it -> {
     System.out.println(it.audioQuality() + ", " + it.videoQuality() + " : " + it.url());
 });
 
-// get all videos formats (may contain better quality but without audio) 
-List<VideoFormat> videoFormats = video.videoFormats();
-videoFormats.forEach(it -> {
-    System.out.println(it.videoQuality() + " : " + it.url());
-});
-
-// get audio formats
-List<AudioFormat> audioFormats = video.audioFormats();
-audioFormats.forEach(it -> {
-    System.out.println(it.audioQuality() + " : " + it.url());
-});
-
-// get best format
+// 获取最佳格式
 video.bestVideoWithAudioFormat();
 video.bestVideoFormat();
 video.bestAudioFormat();
-
-// filtering formats
-List<Format> formats = video.findFormats(new Filter<Format>() {
-    @Override
-    public boolean test(Format format) {
-        return format.extension() == Extension.WEBM;
-    }
-});
-
-// itags can be found here - https://gist.github.com/sidneys/7095afe4da4ae58694d128b1034e01e2
-Format formatByItag = video.findFormatByItag(18); // return null if not found
-if (formatByItag != null) {
-    System.out.println(formatByItag.url());
-}
 ```
 
-### Downloading video
+### 下载视频
 ```java
-File outputDir = new File("my_videos");
+File outputDir = new File("我的视频");
 Format format = videoFormats.get(0);
 
-// sync downloading
+// 同步下载
 RequestVideoFileDownload request = new RequestVideoFileDownload(format)
-    // optional params    
-    .saveTo(outputDir) // by default "videos" directory
-    .renameTo("video") // by default file name will be same as video title on youtube
-    .overwriteIfExists(true); // if false and file with such name already exits sufix will be added video(1).mp4
+    .saveTo(outputDir) // 默认为 "videos" 目录
+    .renameTo("视频文件名") // 默认使用 YouTube 上的视频标题
+    .overwriteIfExists(true); // false 时如果文件存在会添加后缀 video(1).mp4
 Response<File> response = downloader.downloadVideoFile(request);
 File data = response.data();
 
-// async downloading with callback
+// 带进度回调的异步下载
 RequestVideoFileDownload request = new RequestVideoFileDownload(format)
     .callback(new YoutubeProgressCallback<File>() {
         @Override
         public void onDownloading(int progress) {
-            System.out.printf("Downloaded %d%%\n", progress);
+            System.out.printf("已下载 %d%%\n", progress);
         }
     
         @Override
         public void onFinished(File videoInfo) {
-            System.out.println("Finished file: " + videoInfo);
+            System.out.println("完成文件: " + videoInfo);
         }
     
         @Override
         public void onError(Throwable throwable) {
-            System.out.println("Error: " + throwable.getLocalizedMessage());
+            System.out.println("错误: " + throwable.getLocalizedMessage());
         }
     })
     .async();
-Response<File> response = downloader.downloadVideoFile(request);
-File data = response.data(); // will block current thread
-
-// async downloading without callback
-RequestVideoFileDownload request = new RequestVideoFileDownload(format).async();
-Response<File> response = downloader.downloadVideoFile(request);
-File data = response.data(20, TimeUnit.SECONDS); // will block current thread and may throw TimeoutExeption
-
-// download in-memory to OutputStream
-OutputStream os = new ByteArrayOutputStream();
-RequestVideoStreamDownload request = new RequestVideoStreamDownload(format, os);
-Response<Void> response = downloader.downloadVideoStream(request);
 ```
 
-### Subtitles
+### 代理认证支持
+
+本增强版本完全支持 HTTP 代理认证：
+
 ```java
-// you can get subtitles from video captions if you have already parsed video info
-List<SubtitlesInfo> subtitlesInfo = video.subtitles(); // NOTE: includes auto-generated
-// if you don't need video info, but just subtitles make this request instead
-Response<List<SubtitlesInfo>> response = downloader.getSubtitlesInfo(new RequestSubtitlesInfo(videoId)); // NOTE: does not include auto-generated
-List<SubtitlesInfo> subtitlesInfo = response.data();
+// 场景1: 无代理
+Config config = new Config.Builder().build();
 
-for (SubtitlesInfo info : subtitles) {
-    RequestSubtitlesDownload request = new RequestSubtitlesDownload(info)
-            // optional
-            .formatTo(Extension.JSON3)
-            .translateTo("uk");
-    // sync download
-    Response<String> response = downloader.downloadSubtitle(request);
-    String subtitlesString = response.data();
+// 场景2: 无认证代理
+Config config = new Config.Builder()
+    .proxy("127.0.0.1", 10808)
+    .build();
 
-    // async download
-    RequestSubtitlesDownload request = new RequestSubtitlesDownload(info)
-            .callback(...) // optional
-            .async();
-    Response<String> response = downloader.downloadSubtitle(request);
-    String subtitlesString = response.data(); // will block current thread
+// 场景3: 带认证代理
+Config config = new Config.Builder()
+    .proxy("proxy.example.com", 8080, "username", "password")
+    .build();
 
-    // to download using external download manager
-    String downloadUrl = request.getDownloadUrl();
-}
+// 针对单个请求设置代理
+RequestVideoInfo request = new RequestVideoInfo(videoId)
+    .proxy("proxy.example.com", 8080, "username", "password");
 ```
 
-### Playlists
+### 错误处理改进
+
+增强版本提供更清晰的错误信息：
+
 ```java
-String playlistId = "abc12345"; // for url https://www.youtube.com/playlist?list=abc12345
-RequestPlaylistInfo request = new RequestPlaylistInfo(playlistId);
-Response<PlaylistInfo> response = downloader.getPlaylistInfo(request);
-PlaylistInfo playlistInfo = response.data();
+// 原版本: 显示完整异常堆栈
+// java.io.IOException: Server returned HTTP response code: 407...
 
-// playlist details
-PlaylistDetails details = playlistInfo.details();
-System.out.println(details.title());
-System.out.println(details.videoCount());
-
-// get video details
-PlaylistVideoDetails videoDetails = playlistInfo.videos().get(0);
-System.out.println(videoDetails.videoId());
-System.out.println(videoDetails.title());
-System.out.println(videoDetails.index());
+// 增强版本: 显示关键信息
+// HTTP 407 - 代理认证失败
+// streamingData not found
+// 连接超时
 ```
 
-### Channel uploads
-```java
-String channelId = "abc12345";  // for url https://www.youtube.com/channel/abc12345
-// or 
-String channelId = "someName";  // for url https://www.youtube.com/c/someName
-RequestChannelUploads request = new RequestChannelUploads(channelId);
-Response<PlaylistInfo> response = downloader.getChannelUploads(request);
-PlaylistInfo playlistInfo = response.data();
-```
-
-### Search
-```java
-RequestSearchResult request = new RequestSearchResult("search query")
-    // filters
-    .type(TypeField.VIDEO)                 // Videos only
-    .format(FormatField._3D,
-        FormatField.HD)                    // 3D HD videos
-    .match(FeatureField.SUBTITLES)         // with subtitles
-    .during(DurationField.OVER_20_MINUTES) // more than 20 minutes videos
-    .uploadedThis(UploadDateField.MONTH)   // uploaded this month
-
-    // other parameters
-    .forceExactQuery(true)                 // avoid auto correction
-    .sortBy(SortField.VIEW_COUNT);         // results sorted by view count
-// or
-RequestSearchResult request = new RequestSearchResult("search query")
-    .filter(
-        TypeField.VIDEO,
-        FormatField.HD,
-        (...)
-        UploadDateField.MONTH);
-
-SearchResult result = downloader.search(request).data();
-
-// retrieve next result (20 items max per continuation)
-if (result.hasContinuation()) {
-    RequestSearchContinuation nextRequest = new RequestSearchContinuation(result);
-    SearchResult continuation = downloader.searchContinuation(nextRequest).data();
-}
-
-// a query is suggested, get its result
-if (result.suggestion() != null) {
-    System.out.println(result.suggestion().query()); // suggested query
-    RequestSearchable suggestedRequest = new RequestSearchable(result.suggestion());
-    SearchResult suggestedResult = downloader.search(suggestedRequest).data();
-}
-
-// query refinements
-if (result.refinements() != null) {
-    System.out.println(result.refinements().get(0).query()); // refinement query
-    RequestSearchable refinedRequest = new RequestSearchable(result.refinements().get(0));
-    SearchResult refinedResult = downloader.search(refinedRequest).data();
-}
-
-// the query has been auto corrected, force original query
-if (result.isAutoCorrected()) {
-	System.out.println(result.autoCorrectedQuery()); // corrected query
-	SearchResult forcedResult = downloader.search(request.forceExactQuery(true)).data();    
-}
-
-// details
-System.out.println(result.estimatedResults());
-
-// items, 20 max per result (+ possible shelves on first result)
-List<SearchResultItem> items = result.items();
-List<SearchResultVideoDetails> videos = result.videos();
-List<SearchResultChannelDetails> channels = result.channels();
-List<SearchResultPlaylistDetails> playlists = result.playlists();
-List<SearchResultShelf> shelves = result.shelves();
-
-// item cast
-SearchResultItem item = items.get(0);
-switch (item.type()) {
-case VIDEO:
-    System.out.println(item.asVideo().description());
-    break;
-case SHELF:
-    for (SearchResultVideoDetails video : item.asShelf().videos()) {
-        System.out.println(video.author());
-    }
-    break;
-(...)
-}
-
-// Base 64 (optional) : use another base 64 encoder for search parameters
-
-// Classic JDK and Android API >= 26
-Base64Encoder.setInstance(bytes -> Base64.getUrlEncoder().encodeToString(bytes));
-
-// Android API < 26
-Base64Encoder.setInstance(new Base64Encoder() {
-    @Override
-    public String encodeToString(byte[] bytes) {
-        return Base64.encodeToString(bytes, Base64.URL_SAFE);
-    }
-};
-```
-
-Include
--------
+## 编译安装
 
 ### Maven
-
-```xml
-<repositories>
-  <repository>
-    <id>jitpack.io</id>
-    <url>https://jitpack.io</url>
-  </repository>
-</repositories>
-```
-```xml
-<dependency>
-  <groupId>com.github.sealedtx</groupId>
-  <artifactId>java-youtube-downloader</artifactId>
-  <version>3.3.1</version>
-</dependency>
-```
-
-### Gradle
-
-```gradle
-dependencyResolutionManagement {
-	repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
-	repositories {
-		mavenCentral()
-		maven { url 'https://jitpack.io' }
-	}
-}
-```
-```gradleA
-dependencies {
-  implementation 'com.github.sealedtx:java-youtube-downloader:3.3.1'
-}
-```
-### Android
-
-```gradle
-android {
-  ...
-  compileOptions {
-    sourceCompatibility JavaVersion.VERSION_1_8
-    targetCompatibility JavaVersion.VERSION_1_8
-  }
-  // For Kotlin projects
-  kotlinOptions {
-    jvmTarget = "1.8"
-  }
-}
-```
-
-To publish the library to a local Maven repository for test purposes run:
--------
-
-Gradle:
 ```bash
-./gradlew publishToMavenLocal -x test
-```
+# 编译
+mvn compile
 
-Maven:
-```bash
+# 安装到本地仓库（跳过测试）
 mvn install -DskipTests
 ```
 
-`-x test` in Gradle and `-DskipTests` in Maven is used to bypass the outdated failing tests.
+### 依赖项
+
+本项目使用以下主要依赖：
+
+```xml
+<dependencies>
+    <!-- JSON 解析 -->
+    <dependency>
+        <groupId>com.alibaba</groupId>
+        <artifactId>fastjson</artifactId>
+        <version>1.2.83</version>
+    </dependency>
+    
+    <!-- HTTP 客户端 -->
+    <dependency>
+        <groupId>com.squareup.okhttp3</groupId>
+        <artifactId>okhttp</artifactId>
+        <version>4.12.0</version>
+    </dependency>
+    
+    <!-- 日志 -->
+    <dependency>
+        <groupId>org.slf4j</groupId>
+        <artifactId>slf4j-api</artifactId>
+        <version>2.0.9</version>
+    </dependency>
+</dependencies>
+```
+
+## 技术改进
+
+### OkHttp 替换 HttpURLConnection
+
+- **问题**: HttpURLConnection 在 HTTPS 代理隧道认证方面存在限制
+- **解决方案**: 使用 OkHttp 的 `proxyAuthenticator` 正确处理代理认证
+- **优势**: 更稳定的代理连接，支持复杂的认证场景
+
+### 代理认证流程
+
+1. **设置代理**: `request.proxy(host, port, username, password)`
+2. **全局认证**: 设置 `ProxyAuthenticator.setDefault()`
+3. **请求传递**: ParserImpl 将代理信息传递给所有子请求
+4. **OkHttp 处理**: 使用 `proxyAuthenticator` 处理 407 认证质询
+
+### 进度显示优化
+
+- **原版本**: 每10秒显示一次，多行输出
+- **增强版本**: 每秒刷新，单行覆盖显示，实时反馈
+
+## 注意事项
+
+**警告**: YouTube API 不支持视频下载。实际上这是被禁止的 - [服务条款 - II. 禁止事项](https://developers.google.com/youtube/terms/api-services-terms-of-service)。
+<br>**警告**: 下载视频可能违反版权法！
+<br><br>此项目仅用于教育目的。我强烈建议不要使用此项目违反任何法律。
+
+## 项目状态
+
+库**不稳定**，因为 YouTube 经常更改其页面的网络结构。一旦有人发现错误并提出问题，错误就会被修复。欢迎报告错误或提交 PR。
+
+## 原项目
+
+基于 [sealedtx/java-youtube-downloader](https://github.com/sealedtx/java-youtube-downloader) 开发
