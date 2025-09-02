@@ -23,56 +23,15 @@ Java YouTube 下载器 (增强版)
 
 包含了用于快速代理测试的测试类：
 
-```bash
-# 带认证代理测试
-java -cp "target/classes:$(find ~/.m2/repository -name '*.jar' | tr '\n' ':')" \
-  com.github.kiulian.downloader.test.YoutubeVideoParser \
-  代理主机 端口 用户名 密码
-
-# 无认证代理测试  
-java -cp "target/classes:$(find ~/.m2/repository -name '*.jar' | tr '\n' ':')" \
-  com.github.kiulian.downloader.test.YoutubeVideoParser \
-  代理主机 端口
-```
-
 **示例:**
+
 ```bash
 # 带认证
-java YoutubeVideoParser us.decodo.com 10001 spw31iyoeh password123
+java com.github.kiulian.downloader.test.YoutubeVideoParser us.decodo.com 10001 spw31iyoeh password123
 
 # 无认证
-java YoutubeVideoParser 127.0.0.1 10808
+java com.github.kiulian.downloader.test.YoutubeVideoParser 127.0.0.1 10808
 ```
-
-### 增强的代理配置
-
-```java
-// 带认证的代理
-Config config = new Config.Builder()
-    .proxy("proxy.example.com", 8080, "username", "password")
-    .maxRetries(1)
-    .build();
-
-// 无认证的代理
-Config config = new Config.Builder()
-    .proxy("proxy.example.com", 8080)
-    .maxRetries(1)
-    .build();
-```
-
-## 编译和运行
-
-```bash
-# 编译项目
-mvn compile
-
-# 运行测试（带代理认证）
-java -cp "target/classes:$(maven dependency classpath)" \
-  com.github.kiulian.downloader.test.YoutubeVideoParser \
-  你的代理主机 端口 用户名 密码
-```
-
----
 
 ## 使用说明
 
@@ -216,6 +175,58 @@ RequestVideoInfo request = new RequestVideoInfo(videoId)
 // 连接超时
 ```
 
+## 引用此增强版本
+
+### 通过 JitPack 引用
+
+#### Maven
+
+在 `pom.xml` 中添加 JitPack 仓库：
+
+```xml
+<repositories>
+  <repository>
+    <id>jitpack.io</id>
+    <url>https://jitpack.io</url>
+  </repository>
+</repositories>
+```
+
+添加依赖：
+```xml
+<dependency>
+  <groupId>com.github.sfss5362</groupId>
+  <artifactId>java-youtube-downloader</artifactId>
+  <version>v3.3.1-enhanced</version>
+</dependency>
+```
+
+#### Gradle
+
+在 `build.gradle` 中添加：
+
+```gradle
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        mavenCentral()
+        maven { url 'https://jitpack.io' }
+    }
+}
+```
+
+```gradle
+dependencies {
+    implementation 'com.github.sfss5362:java-youtube-downloader:v3.3.1-enhanced'
+}
+```
+
+#### JitPack 构建状态
+
+查看构建状态: [![](https://jitpack.io/v/sfss5362/java-youtube-downloader.svg)](https://jitpack.io/#sfss5362/java-youtube-downloader)
+
+如果首次引用，JitPack 会自动构建项目，可能需要几分钟时间。
+
 ## 编译安装
 
 ### Maven
@@ -255,36 +266,6 @@ mvn install -DskipTests
     </dependency>
 </dependencies>
 ```
-
-## 技术改进
-
-### OkHttp 替换 HttpURLConnection
-
-- **问题**: HttpURLConnection 在 HTTPS 代理隧道认证方面存在限制
-- **解决方案**: 使用 OkHttp 的 `proxyAuthenticator` 正确处理代理认证
-- **优势**: 更稳定的代理连接，支持复杂的认证场景
-
-### 代理认证流程
-
-1. **设置代理**: `request.proxy(host, port, username, password)`
-2. **全局认证**: 设置 `ProxyAuthenticator.setDefault()`
-3. **请求传递**: ParserImpl 将代理信息传递给所有子请求
-4. **OkHttp 处理**: 使用 `proxyAuthenticator` 处理 407 认证质询
-
-### 进度显示优化
-
-- **原版本**: 每10秒显示一次，多行输出
-- **增强版本**: 每秒刷新，单行覆盖显示，实时反馈
-
-## 注意事项
-
-**警告**: YouTube API 不支持视频下载。实际上这是被禁止的 - [服务条款 - II. 禁止事项](https://developers.google.com/youtube/terms/api-services-terms-of-service)。
-<br>**警告**: 下载视频可能违反版权法！
-<br><br>此项目仅用于教育目的。我强烈建议不要使用此项目违反任何法律。
-
-## 项目状态
-
-库**不稳定**，因为 YouTube 经常更改其页面的网络结构。一旦有人发现错误并提出问题，错误就会被修复。欢迎报告错误或提交 PR。
 
 ## 原项目
 
