@@ -1,9 +1,59 @@
-java-youtube-downloader
+java-youtube-downloader (Enhanced)
 ============
 
 [![](https://jitpack.io/v/sealedtx/java-youtube-downloader.svg)](https://jitpack.io/#sealedtx/java-youtube-downloader)
 
 Simple java parser for retrieving youtube video metadata.
+
+**Enhanced version** with improved proxy support, better error handling, and OkHttp integration.
+
+## What's New in This Fork
+
+This enhanced version includes several improvements over the [original project](https://github.com/sealedtx/java-youtube-downloader):
+
+### Key Enhancements
+- 🚀 **Enhanced Proxy Support**: Full HTTP proxy authentication with username/password
+- 🔧 **OkHttp Integration**: Replaced HttpURLConnection with OkHttp for better proxy handling
+- 📊 **Improved Progress Display**: Single-line refresh progress every second
+- 🎯 **Direct visitorData Acquisition**: Optimized API request flow
+- 🛠️ **Better Error Messages**: Clean error output showing key information only
+- 📦 **Removed Nutz Dependency**: Replaced with JDK native + FastJSON implementation
+
+### Quick Test Usage
+
+A test class is included for quick proxy testing:
+
+```bash
+# With proxy authentication
+java -cp "target/classes:$(find ~/.m2/repository -name '*.jar' | tr '\n' ':')" \
+  com.github.kiulian.downloader.test.YoutubeVideoParser \
+  proxy.example.com 8080 username password
+
+# Without proxy authentication  
+java -cp "target/classes:$(find ~/.m2/repository -name '*.jar' | tr '\n' ':')" \
+  com.github.kiulian.downloader.test.YoutubeVideoParser \
+  proxy.example.com 8080
+```
+
+### Enhanced Proxy Configuration
+
+```java
+// Proxy with authentication
+Config config = new Config.Builder()
+    .proxy("proxy.example.com", 8080, "username", "password")
+    .maxRetries(1)
+    .build();
+
+// Proxy without authentication
+Config config = new Config.Builder()
+    .proxy("proxy.example.com", 8080)
+    .maxRetries(1)
+    .build();
+```
+
+---
+
+## Original Documentation
 
 Library is **not stable**, because Youtube often changes web structure of its pages. I don't use this library regularly to find the errors. Thats why errors are fixed as soon as someone finds it and opens an issue. Feel free to report an error or sumbit a PR.
 

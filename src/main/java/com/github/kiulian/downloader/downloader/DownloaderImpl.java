@@ -13,6 +13,9 @@ import java.util.Map;
 import java.util.concurrent.*;
 import java.util.zip.GZIPInputStream;
 
+import okhttp3.*;
+import java.util.concurrent.TimeUnit;
+
 import static com.github.kiulian.downloader.model.Utils.closeSilently;
 
 public class DownloaderImpl implements Downloader {
@@ -21,9 +24,43 @@ public class DownloaderImpl implements Downloader {
     private static final int PART_LENGTH = 2 * 1024 * 1024;
 
     private final Config config;
+    private final OkHttpClient httpClient;
 
     public DownloaderImpl(Config config) {
         this.config = config;
+        this.httpClient = createHttpClient(config);
+    }
+
+    /**
+     * 创建OkHttpClient，支持代理认证
+     */
+    private OkHttpClient createHttpClient(Config config) {
+        OkHttpClient.Builder builder = new OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS);
+
+        if (config.getProxy() != null) {
+            builder.proxy(config.getProxy());
+            
+            // 检查是否有代理认证
+            com.github.kiulian.downloader.downloader.proxy.ProxyAuthenticator auth = 
+                com.github.kiulian.downloader.downloader.proxy.ProxyAuthenticator.getDefault();
+            if (auth != null) {
+                okhttp3.Authenticator proxyAuthenticator = (route, response) -> {
+                    java.net.PasswordAuthentication credentials = auth.getPasswordAuthentication();
+                    if (credentials != null) {
+                        String credential = Credentials.basic(credentials.getUserName(), new String(credentials.getPassword()));
+                        return response.request().newBuilder()
+                            .header("Proxy-Authorization", credential)
+                            .build();
+                    }
+                    return null;
+                };
+                builder.proxyAuthenticator(proxyAuthenticator);
+            }
+        }
+
+        return builder.build();
     }
 
     @Override
@@ -46,59 +83,21 @@ public class DownloaderImpl implements Downloader {
         Map<String, String> headers = request.getHeaders();
         YoutubeCallback<String> callback = request.getCallback();
         int maxRetries = request.getMaxRetries() != null ? request.getMaxRetries() : config.getMaxRetries();
-        Proxy proxy = request.getProxy();
+        Proxy requestProxy = request.getProxy();
 
-        IOException exception;
-        StringBuilder result = new StringBuilder();
+        IOException exception = null;
+        String result = null;
+        int attempts = maxRetries + 1;
+        
         do {
             try {
-                HttpURLConnection urlConnection = openConnection(downloadUrl, headers, proxy, config.isCompressionEnabled());
-                urlConnection.setRequestMethod(request.getMethod());
-                if (request.getBody() != null) {
-                    urlConnection.setDoOutput(true);
-                    try (OutputStreamWriter outputWriter = new OutputStreamWriter(urlConnection.getOutputStream(), StandardCharsets.UTF_8)){
-                        outputWriter.write(request.getBody());
-                        outputWriter.flush();
-                    }
-                }
-                int responseCode = urlConnection.getResponseCode();
-                if (responseCode != 200) {
-                    YoutubeException.DownloadException e = new YoutubeException.DownloadException("Failed to download: HTTP " + responseCode);
-                    if (callback != null) {
-                        callback.onError(e);
-                    }
-                    throw e;
-                }
-
-                int contentLength = urlConnection.getContentLength();
-                if (contentLength == 0) {
-                    YoutubeException.DownloadException e = new YoutubeException.DownloadException("Failed to download: Response is empty");
-                    if (callback != null) {
-                        callback.onError(e);
-                    }
-                    throw e;
-                }
-
-                BufferedReader br = null;
-                try {
-                    InputStream in = urlConnection.getInputStream();
-                    if (config.isCompressionEnabled() && "gzip".equals(urlConnection.getHeaderField("content-encoding"))) {
-                        in = new GZIPInputStream(in);
-                    }
-                    br = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8));
-                    String inputLine;
-                    while ((inputLine = br.readLine()) != null)
-                        result.append(inputLine).append('\n');
-                } finally {
-                    closeSilently(br);
-                }
-                // reset error in case of successful retry
-                exception = null;
+                result = downloadWithOkHttp(downloadUrl, headers, requestProxy, config.isCompressionEnabled(), request.getMethod(), request.getBody());
+                exception = null; // reset on success
             } catch (IOException e) {
                 exception = e;
-                maxRetries--;
+                attempts--;
             }
-        } while (exception != null && maxRetries > 0);
+        } while (exception != null && attempts > 0);
 
         if (exception != null) {
             if (callback != null) {
@@ -107,11 +106,106 @@ public class DownloaderImpl implements Downloader {
             throw exception;
         }
 
-        String resultString = result.toString();
         if (callback != null) {
-            callback.onFinished(resultString);
+            callback.onFinished(result);
         }
-        return resultString;
+        return result;
+    }
+
+    /**
+     * 使用OkHttp下载网页内容
+     */
+    private String downloadWithOkHttp(String downloadUrl, Map<String, String> headers, Proxy requestProxy, boolean acceptCompression, String method, String body) throws IOException {
+        OkHttpClient client = httpClient;
+        
+        // 如果请求指定了不同的代理，创建新的客户端
+        if (requestProxy != null && !requestProxy.equals(config.getProxy())) {
+            client = createHttpClientWithProxy(requestProxy);
+        }
+
+        okhttp3.Request.Builder requestBuilder = new okhttp3.Request.Builder()
+            .url(downloadUrl);
+
+        // 设置请求方法和body
+        if ("POST".equalsIgnoreCase(method) && body != null) {
+            RequestBody requestBody = RequestBody.create(body, MediaType.parse("application/json; charset=utf-8"));
+            requestBuilder.post(requestBody);
+        } else {
+            requestBuilder.get();
+        }
+
+        // 添加配置的headers
+        for (Map.Entry<String, String> entry : config.getHeaders().entrySet()) {
+            requestBuilder.header(entry.getKey(), entry.getValue());
+        }
+        
+        if (acceptCompression) {
+            requestBuilder.header("Accept-Encoding", "gzip");
+        }
+        
+        // 添加请求特定的headers
+        if (headers != null) {
+            for (Map.Entry<String, String> entry : headers.entrySet()) {
+                requestBuilder.header(entry.getKey(), entry.getValue());
+            }
+        }
+
+        okhttp3.Request okRequest = requestBuilder.build();
+        
+        try (okhttp3.Response response = client.newCall(okRequest).execute()) {
+            if (!response.isSuccessful()) {
+                throw new IOException("Failed to download: HTTP " + response.code());
+            }
+            
+            ResponseBody responseBody = response.body();
+            if (responseBody == null || responseBody.contentLength() == 0) {
+                throw new IOException("Failed to download: Response is empty");
+            }
+
+            InputStream in = responseBody.byteStream();
+            if (acceptCompression && "gzip".equals(response.header("content-encoding"))) {
+                in = new GZIPInputStream(in);
+            }
+            
+            StringBuilder result = new StringBuilder();
+            try (BufferedReader br = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
+                String inputLine;
+                while ((inputLine = br.readLine()) != null) {
+                    result.append(inputLine).append('\n');
+                }
+            }
+            
+            return result.toString();
+        }
+    }
+
+    /**
+     * 为特定代理创建OkHttpClient
+     */
+    private OkHttpClient createHttpClientWithProxy(Proxy proxy) {
+        OkHttpClient.Builder builder = new OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .proxy(proxy);
+
+        // 检查是否有代理认证
+        com.github.kiulian.downloader.downloader.proxy.ProxyAuthenticator auth = 
+            com.github.kiulian.downloader.downloader.proxy.ProxyAuthenticator.getDefault();
+        if (auth != null) {
+            okhttp3.Authenticator proxyAuthenticator = (route, response) -> {
+                java.net.PasswordAuthentication credentials = auth.getPasswordAuthentication();
+                if (credentials != null) {
+                    String credential = Credentials.basic(credentials.getUserName(), new String(credentials.getPassword()));
+                    return response.request().newBuilder()
+                        .header("Proxy-Authorization", credential)
+                        .build();
+                }
+                return null;
+            };
+            builder.proxyAuthenticator(proxyAuthenticator);
+        }
+
+        return builder.build();
     }
 
     @Override
@@ -169,7 +263,7 @@ public class DownloaderImpl implements Downloader {
         return null;
     }
 
-    private void download(Request<?, ?> request, Format format, OutputStream os) throws IOException {
+    private void download(com.github.kiulian.downloader.downloader.request.Request<?, ?> request, Format format, OutputStream os) throws IOException {
         Map<String, String> headers = request.getHeaders();
         YoutubeCallback<?> callback = request.getCallback();
         int maxRetries = request.getMaxRetries() != null ? request.getMaxRetries() : config.getMaxRetries();
@@ -202,19 +296,51 @@ public class DownloaderImpl implements Downloader {
 
     // Downloads the format in one single request
     private void downloadStraight(Format format, OutputStream os, Map<String, String> headers, Proxy proxy, YoutubeCallback<?> callback) throws IOException {
-        HttpURLConnection urlConnection = openConnection(format.url(), headers, proxy, false);
-        int responseCode = urlConnection.getResponseCode();
-        if (responseCode != 200) {
-            throw new RuntimeException("Failed to download: HTTP " + responseCode);
+        OkHttpClient client = httpClient;
+        
+        // 如果请求指定了不同的代理，创建新的客户端
+        if (proxy != null && !proxy.equals(config.getProxy())) {
+            client = createHttpClientWithProxy(proxy);
         }
-        int contentLength = urlConnection.getContentLength();
-        InputStream is = urlConnection.getInputStream();
 
-        byte[] buffer = new byte[BUFFER_SIZE];
-        if (callback == null) {
-            copyAndCloseInput(is, os, buffer);
-        } else {
-            copyAndCloseInput(is, os, buffer, 0, contentLength, callback);
+        okhttp3.Request request = new okhttp3.Request.Builder()
+            .url(format.url())
+            .build();
+
+        // 添加配置的headers
+        okhttp3.Request.Builder requestBuilder = request.newBuilder();
+        for (Map.Entry<String, String> entry : config.getHeaders().entrySet()) {
+            requestBuilder.header(entry.getKey(), entry.getValue());
+        }
+        
+        // 添加请求特定的headers
+        if (headers != null) {
+            for (Map.Entry<String, String> entry : headers.entrySet()) {
+                requestBuilder.header(entry.getKey(), entry.getValue());
+            }
+        }
+
+        request = requestBuilder.build();
+        
+        try (okhttp3.Response response = client.newCall(request).execute()) {
+            if (!response.isSuccessful()) {
+                throw new RuntimeException("Failed to download: HTTP " + response.code());
+            }
+            
+            ResponseBody responseBody = response.body();
+            if (responseBody == null) {
+                throw new RuntimeException("Response body is null");
+            }
+            
+            int contentLength = (int) responseBody.contentLength();
+            InputStream is = responseBody.byteStream();
+
+            byte[] buffer = new byte[BUFFER_SIZE];
+            if (callback == null) {
+                copyAndCloseInput(is, os, buffer);
+            } else {
+                copyAndCloseInput(is, os, buffer, 0, contentLength, callback);
+            }
         }
     }
 
@@ -227,6 +353,13 @@ public class DownloaderImpl implements Downloader {
         final long contentLength = format.contentLength();
         byte[] buffer = new byte[BUFFER_SIZE];
 
+        OkHttpClient client = httpClient;
+        
+        // 如果请求指定了不同的代理，创建新的客户端
+        if (proxy != null && !proxy.equals(config.getProxy())) {
+            client = createHttpClientWithProxy(proxy);
+        }
+
         while (done < contentLength) {
             long toRead = PART_LENGTH;
             if (done + toRead > contentLength) {
@@ -238,17 +371,39 @@ public class DownloaderImpl implements Downloader {
                     + done + "-" + (done + toRead - 1)    // range first-last byte positions
                     + "&rn=" + partNumber;                // part number
 
-            HttpURLConnection urlConnection = openConnection(partUrl, headers, proxy, false);
-            int responseCode = urlConnection.getResponseCode();
-            if (responseCode != 200) {
-                throw new RuntimeException("Failed to download: HTTP " + responseCode);
+            okhttp3.Request.Builder requestBuilder = new okhttp3.Request.Builder()
+                .url(partUrl);
+
+            // 添加配置的headers
+            for (Map.Entry<String, String> entry : config.getHeaders().entrySet()) {
+                requestBuilder.header(entry.getKey(), entry.getValue());
+            }
+            
+            // 添加请求特定的headers
+            if (headers != null) {
+                for (Map.Entry<String, String> entry : headers.entrySet()) {
+                    requestBuilder.header(entry.getKey(), entry.getValue());
+                }
             }
 
-            InputStream is = urlConnection.getInputStream();
-            if (listener == null) {
-                done += copyAndCloseInput(is, os, buffer);
-            } else {
-                done += copyAndCloseInput(is, os, buffer, done, contentLength, listener);
+            okhttp3.Request request = requestBuilder.build();
+            
+            try (okhttp3.Response response = client.newCall(request).execute()) {
+                if (!response.isSuccessful()) {
+                    throw new RuntimeException("Failed to download: HTTP " + response.code());
+                }
+
+                ResponseBody responseBody = response.body();
+                if (responseBody == null) {
+                    throw new RuntimeException("Response body is null");
+                }
+                
+                InputStream is = responseBody.byteStream();
+                if (listener == null) {
+                    done += copyAndCloseInput(is, os, buffer);
+                } else {
+                    done += copyAndCloseInput(is, os, buffer, done, contentLength, listener);
+                }
             }
         }
     }
@@ -299,29 +454,4 @@ public class DownloaderImpl implements Downloader {
         return done;
     }
 
-
-    private HttpURLConnection openConnection(String httpUrl, Map<String, String> headers, Proxy proxy, boolean acceptCompression) throws IOException {
-        URL url = new URL(httpUrl);
-
-        HttpURLConnection urlConnection;
-        if (proxy != null) {
-            urlConnection = (HttpURLConnection) url.openConnection(proxy);
-        } else if (config.getProxy() != null) {
-            urlConnection = (HttpURLConnection) url.openConnection(config.getProxy());
-        } else {
-            urlConnection = (HttpURLConnection) url.openConnection();
-        }
-        for (Map.Entry<String, String> entry : config.getHeaders().entrySet()) {
-            urlConnection.setRequestProperty(entry.getKey(), entry.getValue());
-        }
-        if (acceptCompression) {
-            urlConnection.setRequestProperty("Accept-Encoding", "gzip");
-        }
-        if (headers != null) {
-            for (Map.Entry<String, String> entry : headers.entrySet()) {
-                urlConnection.setRequestProperty(entry.getKey(), entry.getValue());
-            }
-        }
-        return urlConnection;
-    }
 }

@@ -27,6 +27,8 @@ import com.github.kiulian.downloader.model.videos.VideoInfo;
 import com.github.kiulian.downloader.model.videos.formats.*;
 
 import java.io.UnsupportedEncodingException;
+import java.net.InetSocketAddress;
+import java.net.Proxy;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.util.*;
@@ -99,23 +101,23 @@ public class ParserImpl implements Parser {
     public Response<VideoInfo> parseVideo(RequestVideoInfo request) {
         if (request.isAsync()) {
             ExecutorService executorService = config.getExecutorService();
-            Future<VideoInfo> result = executorService.submit(() -> parseVideo(request.getVideoId(), request.getCallback(), request.getClientType()));
+            Future<VideoInfo> result = executorService.submit(() -> parseVideo(request.getVideoId(), request.getCallback(), request.getClientType(), request));
             return ResponseImpl.fromFuture(result);
         }
         try {
-            VideoInfo result = parseVideo(request.getVideoId(), request.getCallback(), request.getClientType());
+            VideoInfo result = parseVideo(request.getVideoId(), request.getCallback(), request.getClientType(), request);
             return ResponseImpl.from(result);
         } catch (YoutubeException e) {
             return ResponseImpl.error(e);
         }
     }
 
-    private VideoInfo parseVideo(String videoId, YoutubeCallback<VideoInfo> callback, ClientType client) throws YoutubeException {
+    private VideoInfo parseVideo(String videoId, YoutubeCallback<VideoInfo> callback, ClientType client, RequestVideoInfo originalRequest) throws YoutubeException {
         // try to spoof android
         // workaround for issue https://github.com/sealedtx/java-youtube-downloader/issues/97
-        VideoInfo videoInfo = parseVideoAndroid(videoId, callback, client);
+        VideoInfo videoInfo = parseVideoAndroid(videoId, callback, client, originalRequest);
         if (videoInfo == null) {
-            videoInfo = parseVideoWeb(videoId, callback);
+            videoInfo = parseVideoWeb(videoId, callback, originalRequest);
         }
         if (callback != null) {
             callback.onFinished(videoInfo);
@@ -123,12 +125,51 @@ public class ParserImpl implements Parser {
         return videoInfo;
     }
 
-    private VideoInfo parseVideoAndroid(String videoId, YoutubeCallback<VideoInfo> callback, ClientType client) throws YoutubeException {
+    private VideoInfo parseVideoAndroid(String videoId, YoutubeCallback<VideoInfo> callback, ClientType client, RequestVideoInfo originalRequest) throws YoutubeException {
         String url = BASE_API_URL + "/player?key=" + ANDROID_APIKEY;
 
 
         RequestWebpage request = new RequestWebpage(url, "POST", client.getBody().fluentPut("videoId", videoId).toJSONString())
             .header("Content-Type", "application/json");
+
+        // 传递原始请求的代理设置
+        if (originalRequest.getProxy() != null) {
+            InetSocketAddress proxyAddress = (InetSocketAddress) originalRequest.getProxy().address();
+            String host = proxyAddress.getHostString();
+            int port = proxyAddress.getPort();
+            
+            // 检查是否有代理认证信息
+            com.github.kiulian.downloader.downloader.proxy.ProxyAuthenticator auth = 
+                com.github.kiulian.downloader.downloader.proxy.ProxyAuthenticator.getDefault();
+            if (auth != null) {
+                // 尝试获取认证信息（通过模拟认证请求）
+                java.net.PasswordAuthentication credentials = null;
+                try {
+                    // 创建一个临时的authenticator调用来获取认证信息
+                    java.net.Authenticator.setDefault(auth);
+                    credentials = java.net.Authenticator.requestPasswordAuthentication(
+                        host, null, port, "http", "Proxy Authentication", "basic");
+                } catch (Exception e) {
+                    // 忽略异常
+                }
+                
+                if (credentials != null) {
+                    // 使用带认证的代理方法
+                    request.proxy(host, port, credentials.getUserName(), new String(credentials.getPassword()));
+                } else {
+                    // 使用无认证的代理方法
+                    request.proxy(host, port);
+                }
+            } else {
+                // 使用无认证的代理方法
+                request.proxy(host, port);
+            }
+        }
+        if (originalRequest.getHeaders() != null) {
+            for (Map.Entry<String, String> entry : originalRequest.getHeaders().entrySet()) {
+                request.header(entry.getKey(), entry.getValue());
+            }
+        }
 
         Response<String> response = downloader.downloadWebpage(request);
         if (!response.ok()) {
@@ -150,7 +191,7 @@ public class ParserImpl implements Parser {
             try {
                 formats = parseFormats(playerResponse, null, clientVersion);
             } catch (YoutubeException.InvalidJsUrlException e) {
-                JSONObject playerConfig = downloadPlayerConfig(videoId, callback);
+                JSONObject playerConfig = downloadPlayerConfig(videoId, callback, originalRequest);
                 String jsUrl;
                 try {
                     jsUrl = extractor.extractJsUrlFromConfig(playerConfig, videoId);
@@ -176,10 +217,51 @@ public class ParserImpl implements Parser {
 
     }
 
-    private JSONObject downloadPlayerConfig(String videoId, YoutubeCallback<VideoInfo> callback) throws YoutubeException {
+    private JSONObject downloadPlayerConfig(String videoId, YoutubeCallback<VideoInfo> callback, RequestVideoInfo originalRequest) throws YoutubeException {
         String htmlUrl = "https://www.youtube.com/watch?v=" + videoId;
 
-        Response<String> response = downloader.downloadWebpage(new RequestWebpage(htmlUrl));
+        RequestWebpage request = new RequestWebpage(htmlUrl);
+        
+        // 传递原始请求的代理设置
+        if (originalRequest.getProxy() != null) {
+            InetSocketAddress proxyAddress = (InetSocketAddress) originalRequest.getProxy().address();
+            String host = proxyAddress.getHostString();
+            int port = proxyAddress.getPort();
+            
+            // 检查是否有代理认证信息
+            com.github.kiulian.downloader.downloader.proxy.ProxyAuthenticator auth = 
+                com.github.kiulian.downloader.downloader.proxy.ProxyAuthenticator.getDefault();
+            if (auth != null) {
+                // 尝试获取认证信息（通过模拟认证请求）
+                java.net.PasswordAuthentication credentials = null;
+                try {
+                    // 创建一个临时的authenticator调用来获取认证信息
+                    java.net.Authenticator.setDefault(auth);
+                    credentials = java.net.Authenticator.requestPasswordAuthentication(
+                        host, null, port, "http", "Proxy Authentication", "basic");
+                } catch (Exception e) {
+                    // 忽略异常
+                }
+                
+                if (credentials != null) {
+                    // 使用带认证的代理方法
+                    request.proxy(host, port, credentials.getUserName(), new String(credentials.getPassword()));
+                } else {
+                    // 使用无认证的代理方法
+                    request.proxy(host, port);
+                }
+            } else {
+                // 使用无认证的代理方法
+                request.proxy(host, port);
+            }
+        }
+        if (originalRequest.getHeaders() != null) {
+            for (Map.Entry<String, String> entry : originalRequest.getHeaders().entrySet()) {
+                request.header(entry.getKey(), entry.getValue());
+            }
+        }
+
+        Response<String> response = downloader.downloadWebpage(request);
         if (!response.ok()) {
             YoutubeException e = new YoutubeException.DownloadException(String.format("Could not load url: %s, exception: %s", htmlUrl, response.error().getMessage()));
             if (callback != null) {
@@ -201,8 +283,8 @@ public class ParserImpl implements Parser {
         return playerConfig;
     }
 
-    private VideoInfo parseVideoWeb(String videoId, YoutubeCallback<VideoInfo> callback) throws YoutubeException {
-        JSONObject playerConfig = downloadPlayerConfig(videoId, callback);
+    private VideoInfo parseVideoWeb(String videoId, YoutubeCallback<VideoInfo> callback, RequestVideoInfo originalRequest) throws YoutubeException {
+        JSONObject playerConfig = downloadPlayerConfig(videoId, callback, originalRequest);
 
         JSONObject args = playerConfig.getJSONObject("args");
         JSONObject playerResponse = args.getJSONObject("player_response");
