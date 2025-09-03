@@ -35,27 +35,146 @@ HttpURLConnection                                       ❌ 407错误
 
 ### 1. 方法签名改造 - 代理传递
 
-#### 修改前
+#### 修改的四个核心方法
+
+**方法1: parseVideo() - 主解析入口**
 ```java
-// 原版本 - 无法传递代理信息
+// 原版本
 private VideoInfo parseVideo(String videoId, YoutubeCallback<VideoInfo> callback, ClientType client)
-private VideoInfo parseVideoAndroid(String videoId, YoutubeCallback<VideoInfo> callback, ClientType client)  
-private VideoInfo parseVideoWeb(String videoId, YoutubeCallback<VideoInfo> callback)
-private JSONObject downloadPlayerConfig(String videoId, YoutubeCallback<VideoInfo> callback)
+
+// 增强版 - 新增 originalRequest 参数
+private VideoInfo parseVideo(String videoId, YoutubeCallback<VideoInfo> callback, ClientType client, RequestVideoInfo originalRequest)
 ```
 
-#### 修改后
+**方法2: parseVideoAndroid() - Android API 解析**  
 ```java
-// 增强版 - 传递完整请求对象
-private VideoInfo parseVideo(String videoId, YoutubeCallback<VideoInfo> callback, ClientType client, RequestVideoInfo originalRequest)
+// 原版本
+private VideoInfo parseVideoAndroid(String videoId, YoutubeCallback<VideoInfo> callback, ClientType client)
+
+// 增强版 - 新增 originalRequest 参数
 private VideoInfo parseVideoAndroid(String videoId, YoutubeCallback<VideoInfo> callback, ClientType client, RequestVideoInfo originalRequest)
-private VideoInfo parseVideoWeb(String videoId, YoutubeCallback<VideoInfo> callback, RequestVideoInfo originalRequest)  
+```
+
+**方法3: parseVideoWeb() - Web 页面解析**
+```java
+// 原版本  
+private VideoInfo parseVideoWeb(String videoId, YoutubeCallback<VideoInfo> callback)
+
+// 增强版 - 新增 originalRequest 参数
+private VideoInfo parseVideoWeb(String videoId, YoutubeCallback<VideoInfo> callback, RequestVideoInfo originalRequest)
+```
+
+**方法4: downloadPlayerConfig() - 播放器配置下载**
+```java
+// 原版本
+private JSONObject downloadPlayerConfig(String videoId, YoutubeCallback<VideoInfo> callback)
+
+// 增强版 - 新增 originalRequest 参数  
 private JSONObject downloadPlayerConfig(String videoId, YoutubeCallback<VideoInfo> callback, RequestVideoInfo originalRequest)
+```
+
+#### 方法职责说明
+
+| 方法 | 职责 | 关键请求 | 失败影响 |
+|------|------|----------|----------|
+| parseVideo() | 解析协调器 | - | 整个解析流程失败 |
+| parseVideoAndroid() | Android API解析 | `youtubei/v1/player` | 降级到Web解析 |
+| parseVideoWeb() | Web页面解析 | `youtube.com/watch` | 完全解析失败 |
+| downloadPlayerConfig() | 配置下载 | `youtube.com/watch` | 无法获取播放器配置 |
+
+#### 修改前后调用链对比
+
+**修改前的断链:**
+```
+parseVideo() 
+├── parseVideoAndroid() ❌ 代理信息丢失
+└── parseVideoWeb() 
+    └── downloadPlayerConfig() ❌ 代理信息丢失
+```
+
+**修改后的完整链:**
+```
+parseVideo(originalRequest) 
+├── parseVideoAndroid(originalRequest) ✅ 代理传递
+└── parseVideoWeb(originalRequest) 
+    └── downloadPlayerConfig(originalRequest) ✅ 代理传递
 ```
 
 ### 2. 代理认证信息提取与重设
 
-#### 核心逻辑
+#### 统一的代理处理逻辑
+
+每个方法都添加了相同的代理认证传递代码块：
+
+```java
+// 在每个子请求中重新设置代理认证
+if (originalRequest.getProxy() != null) {
+    InetSocketAddress proxyAddress = (InetSocketAddress) originalRequest.getProxy().address();
+    String host = proxyAddress.getHostString();
+    int port = proxyAddress.getPort();
+    
+    // 从全局 ProxyAuthenticator 获取认证信息
+    ProxyAuthenticator auth = ProxyAuthenticator.getDefault();
+    if (auth != null) {
+        // 通过模拟认证请求获取用户名密码
+        PasswordAuthentication credentials = null;
+        try {
+            Authenticator.setDefault(auth);
+            credentials = Authenticator.requestPasswordAuthentication(
+                host, null, port, "http", "Proxy Authentication", "basic");
+        } catch (Exception e) {
+            // 忽略异常
+        }
+        
+        if (credentials != null) {
+            // 重新设置完整的代理认证
+            request.proxy(host, port, credentials.getUserName(), new String(credentials.getPassword()));
+        } else {
+            // 设置无认证代理
+            request.proxy(host, port);
+        }
+    } else {
+        request.proxy(host, port);
+    }
+}
+```
+
+#### 具体应用示例
+
+**parseVideoAndroid() 中的应用:**
+```java
+// 创建 YouTube API 请求
+RequestWebpage request = new RequestWebpage(url, "POST", clientBody)
+    .header("Content-Type", "application/json");
+
+// + 上述代理认证传递逻辑
+// 确保 YouTube API 请求带有正确的代理认证
+```
+
+**downloadPlayerConfig() 中的应用:**
+```java
+// 创建 YouTube 网页请求  
+RequestWebpage request = new RequestWebpage(htmlUrl);
+
+// + 上述代理认证传递逻辑
+// 确保网页解析请求带有正确的代理认证
+```
+
+#### 技术细节说明
+
+1. **代理地址提取**: 
+   - 从 `Proxy` 对象中提取 `InetSocketAddress`
+   - 获取主机名和端口号
+
+2. **认证信息获取**:
+   - 通过全局 `ProxyAuthenticator.getDefault()` 获取认证器
+   - 使用 `requestPasswordAuthentication()` 模拟认证请求
+   - 提取存储的用户名和密码
+
+3. **代理重设**:
+   - 调用 `request.proxy(host, port, username, password)` 
+   - 触发 `ProxyAuthenticator.addAuthentication()` 重新存储认证
+   - 确保子请求具有完整的代理配置
 ```java
 // 在每个子请求中重新设置代理认证
 if (originalRequest.getProxy() != null) {
